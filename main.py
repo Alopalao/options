@@ -24,12 +24,11 @@ def get_nasdaq_tickers():
     url = "ftp://ftp.nasdaqtrader.com/SymbolDirectory/nasdaqlisted.txt"
     try:
         #raise Exception("Simulated error for testing") # Uncomment to test error handling
-        #raise Exception("Simulated error for testing")
         df = pd.read_csv(url, sep="|")
         # Filter for standard stocks (remove headers/footers)
-        tickers = df[df['File Creation Time'].isna()]['Symbol'].tolist()
+        tickers = df[(df['Test Issue'] == 'N') & (df['Symbol'].str.len() <= 4)]['Symbol'].dropna().tolist()
         # Clean: only letters, length <= 4
-        return [t for t in tickers if t.isalpha() and len(t) <= 4]
+        return tickers
     except Exception as e:
         print(f"Error fetching tickers: {e}")
         return ["PTEN", "AAPL", "GOOGL"] # Fallback test list
@@ -44,9 +43,21 @@ def filter_out_noisy_months(expirations) -> list:
     clean_expirations = []
     for date_str in expirations:
         month_key = date_str[:7]
-        if len(dates_by_month[month_key]) < 3:
-            clean_expirations.append(date_str)
+        if len(dates_by_month[month_key]) > 1:
+            continue
+        clean_expirations.append(date_str)
     return clean_expirations
+
+def get_category_by_market_cap(market_cap):
+    """Categorizes companies based on market capitalization."""
+    if market_cap < 300_000_000:
+        return "Micro-Cap"
+    elif market_cap < 2_000_000_000:
+        return "Small-Cap"
+    elif market_cap < 10_000_000_000:
+        return "Mid-Cap"
+    else:
+        return "Large-Cap+"
 
 def get_date_by_name(date) -> str:
     """Converts from 2026-08-21 to 2026-August-21"""
@@ -55,8 +66,18 @@ def get_date_by_name(date) -> str:
     cur_month = date.split('-')[1]
     return f"{cur_year}-{month_names[cur_month]}-{cur_day}"
 
+def get_last_price_stock(ticker: yf.Ticker) -> float:
+    """Fetches the last closing price of the stock."""
+    try:
+        historical_data = ticker.history(period="1d")
+        return historical_data['Close'].iloc[-1]
+    except Exception as e:
+        print(f"Error fetching last price: {e}")
+        return None
+
 def analyze_ticker(symbol):
     plays = []
+    #symbol = 'AAL'
     try:
         ticker = yf.Ticker(symbol)
         
@@ -69,6 +90,8 @@ def analyze_ticker(symbol):
         if not expirations:
             return plays
         
+        stock_price = get_last_price_stock(ticker)
+        
         # FILTER OUT MONTHS WITH TOO MANY EXPIRATION DATES
         clean_expirations = filter_out_noisy_months(expirations)
 
@@ -76,6 +99,12 @@ def analyze_ticker(symbol):
         for date in clean_expirations:
             opt_chain = ticker.option_chain(date)
             calls = opt_chain.calls
+            if calls.empty:
+                continue
+
+            if stock_price is None:
+                stock_price = "ERROR"
+            calls = calls[calls['strike'] >= (stock_price * 0.70)]
             if calls.empty:
                 continue
 
@@ -108,27 +137,18 @@ def analyze_ticker(symbol):
             if not market_cap or market_cap == 0:
                 return plays
 
-            # Determine the company size category
-            cap_category = "idk"
-            if market_cap < 300_000_000:
-                cap_category = "Micro-Cap"
-            elif market_cap < 2_000_000_000:
-                cap_category = "Small-Cap"
-            elif market_cap < 10_000_000_000:
-                cap_category = "Mid-Cap"
-            else:
-                cap_category = "Large-Cap+"
             for _, row in unusual_calls.iterrows():
                 plays.append({
                     'Ticker': symbol,
                     'Expiration': get_date_by_name(date),
                     'Strike': row['strike'],
-                    'LastPrice': row['lastPrice'],
-                    'Volume': row['volume'],
-                    'OI': row['openInterest'],
-                    'TotalValue': row['total_oi_premium'],
-                    'PctOfMarketCap': (row['total_oi_premium'] / market_cap) * 100,
-                    'CompanySize': cap_category,
+                    'LastPrice': f"${row['lastPrice']:.2f}",
+                    'Volume': f"{row['volume']:,.0f}" if pd.notna(row['volume']) else "0",
+                    'OI': f"{row['openInterest']:,.0f}", 
+                    'TotalValue': f"${row['total_oi_premium']:,.2f}",
+                    'CashVsCompanyValue': f"{(row['total_oi_premium'] / market_cap) * 100:.4f}%",
+                    'CompanySize': get_category_by_market_cap(market_cap),
+                    'StockPrice': f"${stock_price:.2f}"
                 })
         return plays
     except Exception:
@@ -142,15 +162,17 @@ def main():
     # tickers = tickers[:50] 
 
     print(f"Starting scan of {len(tickers)} stocks...")
-    
+    counter = 0
     for i, symbol in enumerate(tickers):
+        counter += 1
         if i % 10 == 0:
             print(f"Progress: {i}/{len(tickers)} processed. Found {len(results)} plays so far.")
 
         found_plays = analyze_ticker(symbol)
         if found_plays:
             results.extend(found_plays)
-
+        if counter == 50:
+            break
         # Be polite to the server
         time.sleep(0.5)
 
