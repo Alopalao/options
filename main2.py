@@ -77,11 +77,9 @@ def get_last_price_stock(ticker: yf.Ticker) -> float:
 
 def analyze_ticker(symbol):
     plays = []
-    #symbol = 'PTEN'
     try:
         ticker = yf.Ticker(symbol)
         
-        # 1. Fetch the company's Market Cap to normalize the scale
         market_cap = ticker.info.get('marketCap')
         if not market_cap or market_cap == 0:
             return plays
@@ -91,10 +89,10 @@ def analyze_ticker(symbol):
             return plays
         
         stock_price = get_last_price_stock(ticker)
+        if stock_price is None or stock_price == "ERROR":
+            return plays
         
-        # FILTER OUT MONTHS WITH TOO MANY EXPIRATION DATES
         clean_expirations = filter_out_noisy_months(expirations)
-
 
         for date in clean_expirations:
             opt_chain = ticker.option_chain(date)
@@ -102,48 +100,45 @@ def analyze_ticker(symbol):
             if calls.empty:
                 continue
 
-            if stock_price is None:
-                stock_price = "ERROR"
-            calls = calls[calls['strike'] >= (stock_price * 0.70)]
+            # Only track speculative upside: strikes at least 5% above stock price
+            calls = calls[calls['strike'] >= (stock_price * 0.9)]
             if calls.empty:
                 continue
 
-            calls = calls.dropna(subset=['lastPrice', 'openInterest'])
+            # Drop missing essential rows to prevent math errors
+            calls = calls.dropna(subset=['lastPrice', 'openInterest', 'volume'])
             
-            # Calculate absolute dollar values
+            # Calculate absolute dollar premium values
             calls['total_oi_premium'] = calls['openInterest'] * calls['lastPrice'] * 100
             calls['total_vol_premium'] = calls['volume'] * calls['lastPrice'] * 100
 
-            # 2. DYNAMIC THRESHOLDS BASED ON MARKET CAP
-            # Active Volume Threshold: 0.01% of the company's entire value
-            dynamic_vol_threshold = market_cap * 0.0001 
-            # Open Interest Threshold: 0.04% of the company's entire value
-            dynamic_oi_threshold = market_cap * 0.0004  
+            # Dynamic Thresholds based on company size
+            vol_cutoff = max(market_cap * 0.0001, 250_000)
+            oi_cutoff = max(market_cap * 0.0004, 1_000_000)
 
-            # 3. Apply a Safety Floor so we don't catch penny stock noise
-            # (e.g., ensuring a bet is at least $50k regardless of how small a stock is)
-            vol_cutoff = max(dynamic_vol_threshold, 50000)
-            oi_cutoff = max(dynamic_oi_threshold, 200000)
+            # Evaluate both rules independently
+            is_active_block = (calls['total_vol_premium'] > vol_cutoff) & (calls['volume'] > (calls['openInterest'] * 0.5))
+            is_massive_oi = (calls['total_oi_premium'] > oi_cutoff)
 
-            # 4. Filter using the dynamic thresholds
-            is_hidden_whale = (calls['total_oi_premium'] > oi_cutoff)
-            is_active_whale = (calls['total_vol_premium'] > vol_cutoff)
+            # Filter rows that trigger at least one alert
+            unusual_calls = calls[is_active_block | is_massive_oi]
 
-            unusual_calls = calls[is_hidden_whale | is_active_whale]
+            for index, row in unusual_calls.iterrows():
+                # Determine the text label for Excel filtering
+                if is_active_block.loc[index] and is_massive_oi.loc[index]:
+                    alert_label = "BOTH"
+                elif is_massive_oi.loc[index]:
+                    alert_label = "Structural Whale (OI)"
+                else:
+                    alert_label = "Daily Volume Spike"
 
-
-            # 1. Fetch the company's Market Cap to normalize the scale
-            market_cap = ticker.info.get('marketCap')
-            if not market_cap or market_cap == 0:
-                return plays
-
-            for _, row in unusual_calls.iterrows():
                 plays.append({
                     'Ticker': symbol,
+                    'Alert_Type': alert_label,  # <-- Your new Excel filter column
                     'Expiration': get_date_by_name(date),
                     'Strike': row['strike'],
                     'LastPrice': f"${row['lastPrice']:.2f}",
-                    'Volume': f"{row['volume']:,.0f}" if pd.notna(row['volume']) else "0",
+                    'Volume': f"{row['volume']:,.0f}",
                     'OI': f"{row['openInterest']:,.0f}", 
                     'TotalValue $': f"{row['total_oi_premium']:,.2f}",
                     'CashVsCompanyValue': f"{(row['total_oi_premium'] / market_cap) * 100:.4f}%",
