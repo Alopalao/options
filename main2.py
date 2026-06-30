@@ -75,6 +75,13 @@ def get_last_price_stock(ticker: yf.Ticker) -> float:
         print(f"Error fetching last price: {e}")
         return None
 
+def get_percentage_price_difference(strike_price, stock_price):
+    """Calculates the percentage difference between the strike price and the stock price."""
+    try:
+        return ((stock_price - strike_price) / stock_price) * 100
+    except ZeroDivisionError:
+        return float('inf')  # Return infinity if stock price is zero to avoid division by zero
+
 def analyze_ticker(symbol):
     plays = []
     try:
@@ -122,7 +129,7 @@ def analyze_ticker(symbol):
 
             # Filter rows that trigger at least one alert
             unusual_calls = calls[is_active_block | is_massive_oi]
-
+            percentage_difference = get_percentage_price_difference(row['strike'], stock_price)
             for index, row in unusual_calls.iterrows():
                 # Determine the text label for Excel filtering
                 if is_active_block.loc[index] and is_massive_oi.loc[index]:
@@ -144,7 +151,8 @@ def analyze_ticker(symbol):
                     'CashVsCompanyValue': f"{(row['total_oi_premium'] / market_cap) * 100:.4f}%",
                     'CompanySize': get_category_by_market_cap(market_cap),
                     'StockPrice': f"${stock_price:.2f}",
-                    'LastDateTrade': row['lastTradeDate']
+                    'LastDateTrade': row['lastTradeDate'],
+                    '% Difference': f"{percentage_difference:.2f}%"
                 })
         return plays
     except Exception:
