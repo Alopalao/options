@@ -78,7 +78,7 @@ def get_last_price_stock(ticker: yf.Ticker) -> float:
 def get_percentage_price_difference(strike_price, stock_price):
     """Calculates the percentage difference between the strike price and the stock price."""
     try:
-        return ((stock_price - strike_price) / stock_price) * 100
+        return ((strike_price - stock_price) / stock_price) * 100
     except ZeroDivisionError:
         return float('inf')  # Return infinity if stock price is zero to avoid division by zero
 
@@ -150,7 +150,7 @@ def analyze_ticker(symbol):
                     'TotalValue $': f"{row['total_oi_premium']:,.2f}",
                     'CashVsCompanyValue': f"{(row['total_oi_premium'] / market_cap) * 100:.4f}%",
                     'CompanySize': get_category_by_market_cap(market_cap),
-                    'StockPrice': f"${stock_price:.2f}",
+                    'StockPrice $': f"{stock_price:.2f}",
                     'LastDateTrade': row['lastTradeDate'],
                     '% Difference': f"{percentage_difference:.2f}%"
                 })
