@@ -43,8 +43,8 @@ def filter_out_noisy_months(expirations) -> list:
     clean_expirations = []
     for date_str in expirations:
         month_key = date_str[:7]
-        if len(dates_by_month[month_key]) > 1:
-            continue
+        #if len(dates_by_month[month_key]) > 1:
+        #    continue
         clean_expirations.append(date_str)
     return clean_expirations
 
@@ -147,7 +147,7 @@ def analyze_ticker(symbol):
                     'LastPrice': f"${row['lastPrice']:.2f}",
                     'Volume': f"{row['volume']:,.0f}",
                     'OI': f"{row['openInterest']:,.0f}", 
-                    'TotalValue $': f"{row['total_oi_premium']:,.2f}",
+                    'TotalValue $': f"{row['total_vol_premium']:,.2f}",
                     'CashVsCompanyValue': f"{(row['total_oi_premium'] / market_cap) * 100:.4f}%",
                     'CompanySize': get_category_by_market_cap(market_cap),
                     'StockPrice $': f"{stock_price:.2f}",
@@ -178,7 +178,7 @@ def main():
         #if counter == 1:
         #    break
         # Be polite to the server
-        time.sleep(0.5)
+        time.sleep(0.4)
 
     if results:
         df = pd.DataFrame(results)
