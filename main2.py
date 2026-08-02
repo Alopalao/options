@@ -129,7 +129,7 @@ def analyze_ticker(symbol):
 
             # Filter rows that trigger at least one alert
             unusual_calls = calls[is_active_block | is_massive_oi]
-            percentage_difference = get_percentage_price_difference(row['strike'], stock_price)
+            
             for index, row in unusual_calls.iterrows():
                 # Determine the text label for Excel filtering
                 if is_active_block.loc[index] and is_massive_oi.loc[index]:
@@ -138,7 +138,7 @@ def analyze_ticker(symbol):
                     alert_label = "Structural Whale (OI)"
                 else:
                     alert_label = "Daily Volume Spike"
-
+                percentage_difference = get_percentage_price_difference(row['strike'], stock_price)
                 plays.append({
                     'Ticker': symbol,
                     'Alert_Type': alert_label,  # <-- Your new Excel filter column
